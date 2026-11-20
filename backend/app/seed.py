@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timezone
 
 from app.db import FIXTURES_DIR, connect
+from app.modules import reclaim_deadline_materialize as deadline_mod
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (
@@ -40,6 +41,8 @@ CREATE TABLE IF NOT EXISTS occupancies (
   cell_id TEXT NOT NULL REFERENCES cells(id),
   tracking_no TEXT NOT NULL,
   opened_at TEXT NOT NULL,
+  reclaim_deadline_at TEXT,
+  overdue_hours_used INTEGER,
   closed_at TEXT,
   status TEXT NOT NULL DEFAULT 'occupied',
   last_event_id TEXT
@@ -81,6 +84,7 @@ def init_db():
     conn.executescript(SCHEMA)
     if not conn.execute("SELECT 1 FROM settings WHERE key='overdue_hours'").fetchone():
         conn.execute("INSERT INTO settings(key, value) VALUES ('overdue_hours', '48')")
+    deadline_mod.ensure_schema(conn)
     if conn.execute("SELECT COUNT(*) AS c FROM cabinets").fetchone()["c"] == 0:
         _seed(conn)
     conn.commit()
@@ -118,9 +122,13 @@ def _seed(conn):
         )
         if ev["event_type"] == "drop" and ev.get("cell_id"):
             oid = f"OCC-{ev['cell_id']}-{ev['id']}"
-            conn.execute(
-                "INSERT INTO occupancies(id, cell_id, tracking_no, opened_at, closed_at, status, last_event_id) VALUES (?,?,?,?,?,?,?)",
-                (oid, ev["cell_id"], ev["tracking_no"], ev["event_ts"], None, "occupied", ev["id"]),
+            deadline_mod.open_occupancy(
+                conn,
+                occupancy_id=oid,
+                cell_id=ev["cell_id"],
+                tracking_no=ev["tracking_no"],
+                opened_at=ev["event_ts"],
+                last_event_id=ev["id"],
             )
             conn.execute("UPDATE cells SET status='occupied' WHERE id=?", (ev["cell_id"],))
             conn.execute(

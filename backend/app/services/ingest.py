@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.db import FIXTURES_DIR, connect
+from app.modules import reclaim_deadline_materialize as deadline_mod
 
 
 def run_batch():
@@ -36,9 +37,13 @@ def run_batch():
                 cell = conn.execute("SELECT status FROM cells WHERE id=?", (ev["cell_id"],)).fetchone()
                 if cell and cell["status"] == "free":
                     oid = f"OCC-{ev['cell_id']}-{ev['id']}"
-                    conn.execute(
-                        "INSERT INTO occupancies(id, cell_id, tracking_no, opened_at, closed_at, status, last_event_id) VALUES (?,?,?,?,?,?,?)",
-                        (oid, ev["cell_id"], ev["tracking_no"], ev["event_ts"], None, "occupied", ev["id"]),
+                    deadline_mod.open_occupancy(
+                        conn,
+                        occupancy_id=oid,
+                        cell_id=ev["cell_id"],
+                        tracking_no=ev["tracking_no"],
+                        opened_at=ev["event_ts"],
+                        last_event_id=ev["id"],
                     )
                     conn.execute("UPDATE cells SET status='occupied' WHERE id=?", (ev["cell_id"],))
             elif ev["event_type"] == "pickup" and ev.get("cell_id"):

@@ -27,6 +27,9 @@ onMounted(async () => {
             <div class="meta">{{ cell.size_code }} · {{ cell.status === 'occupied' ? '占用' : '空闲' }}</div>
           </div>
           <div class="meta" v-if="cell.status === 'occupied' && cell.occupancy?.tracking_no">{{ cell.occupancy.tracking_no }}</div>
+          <div class="meta" v-if="cell.status === 'occupied' && cell.occupancy?.reclaim_deadline_at">
+            截止 {{ cell.occupancy.reclaim_deadline_at }}
+          </div>
           <span class="dot" />
         </div>
       </div>

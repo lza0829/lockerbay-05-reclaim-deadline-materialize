@@ -1,6 +1,9 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Body, HTTPException
 
 from app.db import connect
+from app.modules import reclaim_deadline_materialize as deadline_mod
 from app.seed import overdue_hours
 from app.services import bay as bay_svc
 from app.services import ingest as ingest_svc
@@ -75,6 +78,47 @@ def occupancy_proofs():
             "SELECT * FROM occupancy_proofs ORDER BY id DESC LIMIT 50"
         ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+@router.get("/reclaim/deadlines")
+def reclaim_deadlines(status: str | None = None):
+    """deadline 核证只读接口：占用、opened_at、deadline、所用小时。"""
+    conn = connect()
+    try:
+        return {
+            "rows": deadline_mod.deadline_proofs(conn, status=status),
+            "current_overdue_hours": overdue_hours(conn),
+        }
+    finally:
+        conn.close()
+
+
+@router.get("/reclaim/deadlines/{occupancy_id}")
+def reclaim_deadline(occupancy_id: str):
+    conn = connect()
+    try:
+        proof = deadline_mod.deadline_proof(conn, occupancy_id)
+        if proof is None:
+            raise HTTPException(404, "占用不存在")
+        return proof
+    finally:
+        conn.close()
+
+
+@router.get("/reclaim/due")
+def reclaim_due(now: str | None = None):
+    """回收扫描：只读已物化的 deadline；`now` 缺省取当前 UTC。"""
+    now_iso = now or datetime.now(timezone.utc).strftime(deadline_mod.TS_FORMAT)
+    try:
+        deadline_mod.parse_ts(now_iso)
+    except ValueError:
+        raise HTTPException(400, "now 须为 ISO8601 时刻")
+    conn = connect()
+    try:
+        rows, watermark = deadline_mod.due_for_reclaim(conn, now_iso)
+        return {"now": now_iso, "rows": rows, "watermark": watermark, "count": len(rows)}
     finally:
         conn.close()
 
